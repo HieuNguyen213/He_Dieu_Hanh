@@ -252,6 +252,9 @@ void receive_response(int client_fd) {
     if (strcmp(buffer, "folder no exists") == 0) {
         folder_exist = FALSE;
     }
+    else if(strcmp(buffer, "folder exists") == 0){
+        folder_exist = TRUE;
+    }
 }
 
 // Hàm để kiểm tra xem một thư mục có phải là thư mục không
@@ -306,20 +309,74 @@ void list_files(const char *dir_path, FileInfo *file_list, int *file_count) {
 }
 
 // Hàm gửi thông tin tệp tin tới server
+// void send_file_info(int client_fd, FileInfo *file_info) {
+//     // Tạo chuỗi dữ liệu để gửi
+//     char buffer[BUFFER_SIZE];
+//     snprintf(buffer, sizeof(buffer), "Filename: %s\nFilepath: %s\nFilesize: %ld bytes\nHash: ",
+//              file_info->filename, file_info->filepath, file_info->filesize);
+
+//     // Gửi thông tin về tên, đường dẫn và kích thước tệp
+//     //send(client_fd, buffer, strlen(buffer), 0);
+
+//     // Gửi hash của tệp tin (dưới dạng hexa)
+//     for (int i = 0; i < 32; i++) {
+//         snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), "%02x", file_info->hash[i]);
+//     }
+//     send(client_fd, buffer, strlen(buffer), 0);
+// }
+
+// Hàm gửi thông tin file tới server
 void send_file_info(int client_fd, FileInfo *file_info) {
-    // Tạo chuỗi dữ liệu để gửi
     char buffer[BUFFER_SIZE];
-    snprintf(buffer, sizeof(buffer), "Filename: %s\nFilepath: %s\nFilesize: %ld bytes\nHash: ",
-             file_info->filename, file_info->filepath, file_info->filesize);
 
-    // Gửi thông tin về tên, đường dẫn và kích thước tệp
-    //send(client_fd, buffer, strlen(buffer), 0);
+    // Gửi tên file
+    snprintf(buffer, sizeof(buffer), "%s", file_info->filename);
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi tên file
+    printf("Đã gửi tên file: %s\n", file_info->filename);
 
-    // Gửi hash của tệp tin (dưới dạng hexa)
+    // Đợi phản hồi từ server
+    char response[BUFFER_SIZE];
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    printf("\n");
+    // Gửi đường dẫn file
+    snprintf(buffer, sizeof(buffer), "%s", file_info->filepath);
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi đường dẫn file
+    printf("Đã gửi đường dẫn: %s\n", file_info->filepath);
+
+    printf("\n");
+    // Đợi phản hồi từ server
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    printf("\n");
+    // Gửi kích thước file
+    snprintf(buffer, sizeof(buffer), "%ld bytes", file_info->filesize);
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi kích thước file
+    printf("Đã gửi kích thước file: %ld bytes\n", file_info->filesize);
+
+    // Đợi phản hồi từ server
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    // Gửi hash của file dưới dạng hex
+    // Khởi tạo buffer
+    char hash_buffer[65]; // 32 bytes * 2 ký tự cho mỗi byte + 1 ký tự null terminator
+    hash_buffer[0] = '\0'; // Đảm bảo chuỗi bắt đầu trống
+
+    // Ghép các giá trị hash vào buffer
     for (int i = 0; i < 32; i++) {
-        snprintf(buffer + strlen(buffer), sizeof(buffer) - strlen(buffer), "%02x", file_info->hash[i]);
+        snprintf(hash_buffer + strlen(hash_buffer), sizeof(hash_buffer) - strlen(hash_buffer), "%02x", file_info->hash[i]);
     }
-    send(client_fd, buffer, strlen(buffer), 0);
+
+    // Gửi toàn bộ hash dưới dạng hex
+    send(client_fd, hash_buffer, strlen(hash_buffer) + 1, 0);  // Gửi toàn bộ hash
+    printf("Đã gửi hash: %s\n", hash_buffer);
+
+    // Đợi phản hồi từ server sau khi gửi hết hash
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
 }
 
 // Hàm hiển thị menu
@@ -406,15 +463,25 @@ void handle_option(int client_fd, int option) {
                     receive_response(client_fd);
                 }
             }
+            else
+            {
+                printf("Folder tồn tại rồi, khó xử lý hơn đấy!\n");
+                //Gửi thông tin của các tệp tin cho server
+                for (int i = 0; i < file_count; i++) {
+                    char different_path[MAX_PATH];
+                    get_different_path(dir_path, file_list[i].filepath, different_path);
+                    printf("different path: %s\n", different_path);
+                    strcpy(file_list[i].filepath, different_path);
+                    send_file_info(client_fd, &file_list);
+                    
+
+                    // printf("Đang gửi thông tin tệp tin: %s\n", file_list[i].filename);
+                    // send_file_info(client_fd, &file_list[i]);
+                    // receive_response(client_fd); // Nhận phản hồi từ server sau mỗi tệp tin
+                }
+            }
 
             printf("\n");
-
-            //Gửi thông tin của các tệp tin cho server
-            // for (int i = 0; i < file_count; i++) {
-            //     printf("Đang gửi thông tin tệp tin: %s\n", file_list[i].filename);
-            //     send_file_info(client_fd, &file_list[i]);
-            //     receive_response(client_fd); // Nhận phản hồi từ server sau mỗi tệp tin
-            // }
 
             break;
         case 0:
