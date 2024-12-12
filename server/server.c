@@ -52,6 +52,41 @@ void send_response(int client_socket, const char *message) {
     }
 }
 
+int create_directory_recursively(const char *path) {
+    char temp_path[512];
+    char *p = NULL;
+    size_t len;
+
+    // Sao chép đường dẫn vào biến tạm
+    snprintf(temp_path, sizeof(temp_path), "%s", path);
+
+    // Lặp qua các phần của đường dẫn và tạo từng thư mục một
+    len = strlen(temp_path);
+    if (temp_path[len - 1] == '/') {
+        temp_path[len - 1] = '\0'; // Xóa ký tự '/' cuối nếu có
+    }
+
+    // Tạo từng thư mục một
+    for (p = temp_path + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0'; // Tạm thời thay '/' thành '\0' để tạo thư mục
+            if (mkdir(temp_path, 0777) == -1 && errno != EEXIST) {
+                perror("Lỗi tạo thư mục");
+                return -1;
+            }
+            *p = '/'; // Khôi phục lại dấu '/'
+        }
+    }
+
+    // Tạo thư mục cuối cùng
+    if (mkdir(temp_path, 0777) == -1 && errno != EEXIST) {
+        perror("Lỗi tạo thư mục");
+        return -1;
+    }
+
+    return 0;
+}
+
 void receive_file(int socket_fd, const char *base_path) {
     char path_buffer[BUFFER_SIZE];
     char file_name[BUFFER_SIZE];
@@ -81,21 +116,24 @@ void receive_file(int socket_fd, const char *base_path) {
 
     // Tạo đường dẫn đầy đủ cho file (bao gồm thư mục base_path, đường dẫn thư mục từ client và tên file)
     char full_file_path[BUFFER_SIZE];
-    if(path_buffer[0] == '\'')
+
+    if(path_len == 1)
     {
         snprintf(full_file_path, sizeof(full_file_path), "%s", base_path);
     }
     else{
-        snprintf(full_file_path, sizeof(full_file_path), "%s/%s", base_path, path_buffer);
+        snprintf(full_file_path, sizeof(full_file_path), "%s%s", base_path, path_buffer);
     }
     printf("đường dẫn thư mục tạo để ghi: %s\n", full_file_path);
 
-    if(mkdir(full_file_path, 0777) == -1 && errno != EEXIST) {
-        perror("Lỗi tạo thư mục");
-        return;
+    if (create_directory_recursively(full_file_path) == 0) {
+        printf("Các thư mục đã được tạo thành công.\n");
+    } else {
+        printf("Có lỗi khi tạo thư mục.\n");
     }
+
     char full_file_path2[BUFFER_SIZE];
-    snprintf(full_file_path2, sizeof(full_file_path2), "%s/%s", full_file_path, file_name);
+    snprintf(full_file_path2, sizeof(full_file_path2), "%s%s", full_file_path, file_name);
 
     printf("file name: %s\n", file_name);
     printf("đường dẫn file để ghi là: %s\n", full_file_path2);
@@ -389,7 +427,7 @@ int main() {
     // In thư mục đầu tiên
     printf("Thư mục sẽ lưu: %s\n", dir_path);
 
-    remove_last_component(full_path);
+    //remove_last_component(full_path);
 
     if (check_path_exists(absolute_path, dir_path)) {
         printf("Đường dẫn %s/%s tồn tại.\n", absolute_path, dir_path);

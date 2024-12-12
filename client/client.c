@@ -26,32 +26,36 @@ typedef struct {
     unsigned char hash[16]; // Hash của tệp tin (MD5)
 } FileInfo;
 
-// Hàm để lọc ra phần đường dẫn khác nhau giữa 2 đường dẫn
+// Hàm để lọc ra phần đường dẫn khác nhau giữa 2 đường dẫn (bỏ qua tên file)
 void get_different_path(const char *base_path, const char *file_path, char *result) {
-    // Tìm vị trí bắt đầu của sự khác nhau
-    const char *base_ptr = base_path;
-    const char *file_ptr = file_path;
+    // Tìm vị trí của tên file trong file_path
+    const char *last_slash = strrchr(file_path, '/');
+    if (!last_slash) {
+        // Nếu không tìm thấy '/', không thể lấy đường dẫn
+        result[0] = '\0';
+        return;
+    }
 
-    // Bỏ qua dấu '/' nếu đường dẫn gốc và file giống nhau ở phần đầu
+    // Sao chép phần đường dẫn (bỏ qua tên file)
+    char file_dir[MAX_PATH];
+    strncpy(file_dir, file_path, last_slash - file_path + 1);
+    file_dir[last_slash - file_path + 1] = '\0';
+
+    // So sánh base_path với file_dir để tìm phần khác biệt
+    const char *base_ptr = base_path;
+    const char *file_ptr = file_dir;
+
+    // Bỏ qua các ký tự giống nhau ban đầu
     while (*base_ptr && *file_ptr && *base_ptr == *file_ptr) {
         base_ptr++;
         file_ptr++;
     }
 
-    // Nếu cả base_path và file_path kết thúc ở dấu '/' hoặc trống, coi là giống nhau
+    // Copy phần còn lại của file_dir (phần khác biệt)
     if (*base_ptr == '\0' && *file_ptr == '/') {
-        result[0] = '\'';  // Không có phần khác biệt
-    }
-
-    else{
-        // Bỏ qua tên file nếu có
-        const char *last_slash = strrchr(file_ptr, '/');
-        if (last_slash) {
-            strncpy(result, file_ptr, last_slash - file_ptr + 1);
-            result[last_slash - file_ptr + 1] = '\0';
-        } else {
-            result[0] = '\''; // Nếu không có phần khác biệt
-        }
+        strcpy(result, file_ptr); // Copy phần còn lại từ file_dir
+    } else {
+        result[0] = '\0'; // Nếu không có phần khác biệt
     }
 }
 
@@ -394,6 +398,8 @@ void handle_option(int client_fd, int option) {
                 {
                     char different_path[MAX_PATH];
                     // Lọc phần đường dẫn khác nhau
+                    printf("dir path: %s\n", dir_path);
+                    printf("file path: %s\n", file_list[i].filepath);
                     get_different_path(dir_path, file_list[i].filepath, different_path);
                     printf("different path: %s\n", different_path);
                     send_file(client_fd, file_list[i].filepath, different_path);
