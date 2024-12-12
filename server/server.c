@@ -100,6 +100,13 @@ void receive_file(int socket_fd, const char *base_path) {
     printf("file name: %s\n", file_name);
     printf("đường dẫn file để ghi là: %s\n", full_file_path2);
 
+    // Nhận kích thước file
+    long file_size;
+    if (recv(socket_fd, &file_size, sizeof(file_size), 0) <= 0) {
+        perror("Lỗi nhận kích thước file");
+        return;
+    }
+    printf("Kích thước file: %ld bytes\n", file_size);
 
     // Mở file để ghi dữ liệu nhận được
     int bytes_received;
@@ -111,14 +118,24 @@ void receive_file(int socket_fd, const char *base_path) {
     printf("Receiving file: %s\n", file_name);
 
     char buffer2[BUFFER_SIZE];
-    while ((bytes_received = recv(socket_fd, buffer2, sizeof(buffer2), 0)) > 0) {
+    long total_received = 0;
+    
+    while (total_received < file_size) {
+        ssize_t bytes_received = recv(socket_fd, buffer2, sizeof(buffer2), 0);
+        if (bytes_received <= 0) {
+            perror("Lỗi nhận dữ liệu file");
+            fclose(file);
+            return;
+        }
         fwrite(buffer2, 1, bytes_received, file);
-        if (bytes_received < BUFFER_SIZE) break; // File truyền xong
+        total_received += bytes_received;
     }
 
     fclose(file);
     printf("File '%s' received successfully!\n", file_name);
 }
+
+
 
 
 

@@ -55,6 +55,71 @@ void get_different_path(const char *base_path, const char *file_path, char *resu
     }
 }
 
+// void send_file(int socket_fd, const char *path_file, const char *file_path) {
+//     printf("path file: %s\n", path_file);
+//     char buffer[BUFFER_SIZE];
+//     FILE *file = fopen(path_file, "rb");
+//     if (!file) {
+//         perror("Lỗi mở file");
+//         exit(EXIT_FAILURE);
+//     }
+
+//     // Tách tên file từ đường dẫn
+//     const char *file_name = strrchr(path_file, '/'); // Tìm '/' cuối cùng trong đường dẫn
+//     if (file_name) {
+//         file_name++; // Bỏ qua dấu '/' để lấy tên file
+//     } else {
+//         file_name = path_file; // Nếu không có '/', coi toàn bộ là tên file
+//     }
+
+//     // Gửi đường dẫn file đến server (loại bỏ tên file)
+//     printf("file path: %s\n", file_path);
+//     if(*file_path == '\'')
+//     {
+//         //printf("Chuẩn rồi!\n");
+//         if (send(socket_fd, file_path, strlen(file_path) + 1, 0) == -1) {
+//             perror("Lỗi gửi đường dẫn file");
+//             fclose(file);
+//             exit(EXIT_FAILURE);
+//         }
+//     }
+//     else
+//     {
+//         printf("Không chuẩn rồi!\n");
+//         if (send(socket_fd, file_path, strlen(file_path), 0) == -1) {
+//             perror("Lỗi gửi đường dẫn file");
+//             fclose(file);
+//             exit(EXIT_FAILURE);
+//         }
+//     }
+
+//     // Gửi tên file đến server
+//     printf("file name: %s\n", file_name);
+//     if (send(socket_fd, file_name, strlen(file_name), 0) < 0) {
+//         perror("Lỗi gửi tên file");
+//         fclose(file);
+//         exit(EXIT_FAILURE);
+//     }
+//     receive_response(socket_fd);
+
+//     // Gửi nội dung file đến server
+//     printf("bắt đầu gửi nội dung file!\n");
+//     char buffer2[BUFFER_SIZE];
+//     ssize_t bytes_read;
+
+//     // Gửi nội dung file
+//     while ((bytes_read = fread(buffer2, 1, BUFFER_SIZE, file)) > 0) {
+//         if (send(socket_fd, buffer2, bytes_read, 0) < 0) {
+//             perror("Failed to send file");
+//             fclose(file);
+//             return;
+//         }
+//     }
+
+//     fclose(file);
+//     printf("File đã được gửi thành công.\n");
+// }
+
 void send_file(int socket_fd, const char *path_file, const char *file_path) {
     printf("path file: %s\n", path_file);
     char buffer[BUFFER_SIZE];
@@ -65,49 +130,44 @@ void send_file(int socket_fd, const char *path_file, const char *file_path) {
     }
 
     // Tách tên file từ đường dẫn
-    const char *file_name = strrchr(path_file, '/'); // Tìm '/' cuối cùng trong đường dẫn
+    const char *file_name = strrchr(path_file, '/');
     if (file_name) {
         file_name++; // Bỏ qua dấu '/' để lấy tên file
     } else {
-        file_name = path_file; // Nếu không có '/', coi toàn bộ là tên file
+        file_name = path_file;
     }
 
-    // Gửi đường dẫn file đến server (loại bỏ tên file)
+    // Gửi đường dẫn thư mục và tên file
     printf("file path: %s\n", file_path);
-    if(*file_path == '\'')
-    {
-        //printf("Chuẩn rồi!\n");
-        if (send(socket_fd, file_path, strlen(file_path) + 1, 0) == -1) {
-            perror("Lỗi gửi đường dẫn file");
-            fclose(file);
-            exit(EXIT_FAILURE);
-        }
-    }
-    else
-    {
-        printf("Không chuẩn rồi!\n");
-        if (send(socket_fd, file_path, strlen(file_path), 0) == -1) {
-            perror("Lỗi gửi đường dẫn file");
-            fclose(file);
-            exit(EXIT_FAILURE);
-        }
+    if (send(socket_fd, file_path, strlen(file_path) + 1, 0) == -1) {
+        perror("Lỗi gửi đường dẫn file");
+        fclose(file);
+        exit(EXIT_FAILURE);
     }
 
-    // Gửi tên file đến server
     printf("file name: %s\n", file_name);
-    if (send(socket_fd, file_name, strlen(file_name), 0) < 0) {
+    if (send(socket_fd, file_name, strlen(file_name) + 1, 0) < 0) {
         perror("Lỗi gửi tên file");
         fclose(file);
         exit(EXIT_FAILURE);
     }
     receive_response(socket_fd);
 
-    // Gửi nội dung file đến server
-    printf("bắt đầu gửi nội dung file!\n");
-    char buffer2[BUFFER_SIZE];
-    ssize_t bytes_read;
+    // Tính toán và gửi kích thước file
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    printf("Kích thước file: %ld bytes\n", file_size);
+    if (send(socket_fd, &file_size, sizeof(file_size), 0) < 0) {
+        perror("Lỗi gửi kích thước file");
+        fclose(file);
+        exit(EXIT_FAILURE);
+    }
 
     // Gửi nội dung file
+    char buffer2[BUFFER_SIZE];
+    ssize_t bytes_read;
     while ((bytes_read = fread(buffer2, 1, BUFFER_SIZE, file)) > 0) {
         if (send(socket_fd, buffer2, bytes_read, 0) < 0) {
             perror("Failed to send file");
@@ -115,10 +175,10 @@ void send_file(int socket_fd, const char *path_file, const char *file_path) {
             return;
         }
     }
-
     fclose(file);
     printf("File đã được gửi thành công.\n");
 }
+
 
 int calculate_file_hash(const char *filepath, unsigned char *hash_out) {
     FILE *file = fopen(filepath, "rb");
