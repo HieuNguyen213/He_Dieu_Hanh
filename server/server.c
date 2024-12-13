@@ -13,6 +13,10 @@
 #define PORT 8080
 #define BUFFER_SIZE 2048
 #define STORAGE_PATH "../common/storage"
+#define HASH_SIZE 16
+
+#define TRUE 1
+#define FALSE 0
 
 typedef struct {
     char filename[1024];   // Tên tệp tin
@@ -605,11 +609,11 @@ int main() {
             printf("\n");
 
             //ghép đường dẫn
-            char full_path[BUFFER_SIZE]; 
-            snprintf(full_path, sizeof(full_path), "%s%s%s", absolute_path, file_info[i].filepath, file_info[i].filename);
-            strncpy(file_info[i].filepath, full_path, sizeof(file_info[i].filepath) - 1);
+            char full_path1[BUFFER_SIZE]; 
+            snprintf(full_path1, sizeof(full_path1), "%s%s%s", absolute_path, file_info[i].filepath, file_info[i].filename);
+            strncpy(file_info[i].filepath, full_path1, sizeof(file_info[i].filepath) - 1);
             file_info[i].filepath[sizeof(file_info[i].filepath) - 1] = '\0';  // Đảm bảo chuỗi kết thúc đúng
-            remove_last_component(full_path);
+            remove_last_component(full_path1);
 
             //In ra thông tin file nhận được
             printf("ClientToServer_Tệp tin: %s\n", file_info[i].filename);
@@ -627,7 +631,7 @@ int main() {
                 printf("%s không tồn tại!\n", file_info[i].filename);
                 const char *response = "File no exist";
                 send_response(client_socket, response);
-
+                //remove_last_component(full_path);
                 receive_file(client_socket, full_path);
                 const char *send_file_message = "File received successfully.";
                 send_response(client_socket, send_file_message);
@@ -636,8 +640,35 @@ int main() {
                 // send_response(client_socket, response);
             }
             else
-            {
+            {            
                 printf("%s tồn tại!\n", file_info[i].filename);
+
+                for(int index = 0; index < file_count; index++)
+                {
+                    if (strcmp(file_list[index].filename, file_info[i].filename) == 0) {
+                        // Hai tên file giống nhau
+                        if (!(memcmp(file_list[index].hash, file_info[i].hash, sizeof(file_list[index].hash)) == 0))
+                        {
+                            printf("File %s có thay đổi\n", file_list[index].filename);
+                            printf("Server_Hash Server (MD5): ");
+                            for (int j = 0; j < 16; j++) {
+                                printf("%02x", file_list[index].hash[j]);
+                            }
+                            printf("\n");
+                            printf("Server_Hash Client (MD5): ");
+                            for (int j = 0; j < 16; j++) {
+                                printf("%02x", file_info[i].hash[j]);
+                            }
+                        }
+
+                        else
+                        {
+                            printf("File %s không thay đổi\n", file_list[index].filename);
+                        }
+                    }
+                }
+                printf("\n");
+
                 const char *response = "File exist";
                 send_response(client_socket, response);
             }

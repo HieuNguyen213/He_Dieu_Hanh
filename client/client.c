@@ -275,6 +275,11 @@ void receive_response(int client_fd) {
         printf("Server_File no exist\n");
         file_exist = FALSE;
     }
+    else if(strcmp(buffer, "File exist") == 0)
+    {
+        printf("Server_File exist\n");
+        file_exist = TRUE;
+    }
 }
 
 // Hàm để kiểm tra xem một thư mục có phải là thư mục không
@@ -392,7 +397,7 @@ void send_file_info(int client_fd, FileInfo *file_info) {
     hash_buffer[0] = '\0'; // Đảm bảo chuỗi bắt đầu trống
 
     // Ghép các giá trị hash vào buffer
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 16; i++) {
         snprintf(hash_buffer + strlen(hash_buffer), sizeof(hash_buffer) - strlen(hash_buffer), "%02x", file_info->hash[i]);
     }
 
