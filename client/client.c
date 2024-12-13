@@ -16,8 +16,10 @@
 #define FALSE   0
 
 uint8_t folder_exist = TRUE;
+uint8_t file_exist = TRUE;
 
 int is_directory(const char *path);
+void receive_response(int client_fd);
 
 typedef struct {
     char filename[1024];   // Tên tệp tin
@@ -268,6 +270,11 @@ void receive_response(int client_fd) {
     else if(strcmp(buffer, "folder exists") == 0){
         folder_exist = TRUE;
     }
+    else if(strcmp(buffer, "File no exist") == 0)
+    {
+        printf("Server_File no exist\n");
+        file_exist = FALSE;
+    }
 }
 
 // Hàm để kiểm tra xem một thư mục có phải là thư mục không
@@ -494,15 +501,25 @@ void handle_option(int client_fd, int option) {
 
                 //Gửi thông tin của các tệp tin cho server
                 for (int i = 0; i < file_count; i++) {
+                    char temp[256];
+                    strcpy(temp, file_list[i].filepath);
+                    printf("temp1: %s\n", temp);
                     char different_path[MAX_PATH];
                     get_different_path(dir_path, file_list[i].filepath, different_path);
                     printf("different path: %s\n", different_path);
                     strcpy(file_list[i].filepath, different_path);
                     send_file_info(client_fd, &file_list[i]);
-                    
-                    // printf("Đang gửi thông tin tệp tin: %s\n", file_list[i].filename);
-                    // send_file_info(client_fd, &file_list[i]);
                     receive_response(client_fd); // Nhận phản hồi từ server sau mỗi tệp tin
+
+                    receive_response(client_fd); //nhận phản hồi từ server để kiểm tra file có tồn tại hay không
+                    if(file_exist == FALSE)
+                    {
+                        printf("gửi thông tin file!\n");
+                        file_exist = TRUE;
+                        printf("temp2: %s\n", temp);
+                        send_file(client_fd, temp, different_path);
+                        receive_response(client_fd);
+                    }
                     printf("\n\n");
                 }
             }

@@ -602,55 +602,59 @@ int main() {
             receive_file_info(client_socket, &file_info[i]);
             const char *mess = "Receive infor file ok!";
             send_response(client_socket, mess);
-            printf("\n\n");
-        }
+            printf("\n");
 
-        //ghép đường dẫn
-        for(int i = 0; i < file_count_from_client; i++)
-        {
+            //ghép đường dẫn
             char full_path[BUFFER_SIZE]; 
             snprintf(full_path, sizeof(full_path), "%s%s%s", absolute_path, file_info[i].filepath, file_info[i].filename);
             strncpy(file_info[i].filepath, full_path, sizeof(file_info[i].filepath) - 1);
             file_info[i].filepath[sizeof(file_info[i].filepath) - 1] = '\0';  // Đảm bảo chuỗi kết thúc đúng
+            remove_last_component(full_path);
 
-        }
-
-        for (int i = 0; i < file_count_from_client; i++) {
-            printf("Client_Tệp tin: %s\n", file_info[i].filename);
-            printf("Client_Đường dẫn: %s\n", file_info[i].filepath);
-            printf("Client_Kích thước: %ld bytes\n", file_info[i].filesize);
-            printf("Client_Hash (MD5): ");
+            //In ra thông tin file nhận được
+            printf("ClientToServer_Tệp tin: %s\n", file_info[i].filename);
+            printf("ClientToServer_Đường dẫn: %s\n", file_info[i].filepath);
+            printf("ClientToServer_Kích thước: %ld bytes\n", file_info[i].filesize);
+            printf("ClientToServer_Hash (MD5): ");
             for (int j = 0; j < 16; j++) {
                 printf("%02x", file_info[i].hash[j]);
             }
-
             printf("\n");
 
             //kiểm tra xem file có tồn tại hay là không (folder có tồn tại nhưng file chưa chắc đã tồn tại)
             if(!check_file_exists(file_info[i].filepath))
             {
                 printf("%s không tồn tại!\n", file_info[i].filename);
+                const char *response = "File no exist";
+                send_response(client_socket, response);
+
+                receive_file(client_socket, full_path);
+                const char *send_file_message = "File received successfully.";
+                send_response(client_socket, send_file_message);
+                // receive_file(client_socket, full_path);
+                // const char *response = "File received successfully.";
+                // send_response(client_socket, response);
             }
             else
             {
                 printf("%s tồn tại!\n", file_info[i].filename);
+                const char *response = "File exist";
+                send_response(client_socket, response);
             }
             printf("\n\n");
         }
 
-        // const char *response = "Infor file received successfully.";
-        // send_response(client_socket, response);
-        
-        // // In ra thông tin của các tệp tin
-        // for (int i = 0; i < file_count; i++) {
-        //     printf("Server_Tên tệp tin: %s\n", file_list[i].filename);
-        //     printf("Server_Đường dẫn: %s\n", file_list[i].filepath);
-        //     printf("Server_Kích thước: %ld bytes\n", file_list[i].filesize);
-        //     printf("Server_Hash (MD5): ");
-        //     for (int j = 0; j < 16; j++) {
-        //         printf("%02x", file_list[i].hash[j]);
-        //     }
-        //     printf("\n\n");
+        //ghép đường dẫn
+        // for(int i = 0; i < file_count_from_client; i++)
+        // {
+        //     char full_path[BUFFER_SIZE]; 
+        //     snprintf(full_path, sizeof(full_path), "%s%s%s", absolute_path, file_info[i].filepath, file_info[i].filename);
+        //     strncpy(file_info[i].filepath, full_path, sizeof(file_info[i].filepath) - 1);
+        //     file_info[i].filepath[sizeof(file_info[i].filepath) - 1] = '\0';  // Đảm bảo chuỗi kết thúc đúng
+
+        // }
+
+        // for (int i = 0; i < file_count_from_client; i++) {
         //     printf("Client_Tệp tin: %s\n", file_info[i].filename);
         //     printf("Client_Đường dẫn: %s\n", file_info[i].filepath);
         //     printf("Client_Kích thước: %ld bytes\n", file_info[i].filesize);
@@ -658,8 +662,33 @@ int main() {
         //     for (int j = 0; j < 16; j++) {
         //         printf("%02x", file_info[i].hash[j]);
         //     }
+
+        //     printf("\n");
+
+        //     //kiểm tra xem file có tồn tại hay là không (folder có tồn tại nhưng file chưa chắc đã tồn tại)
+        //     if(!check_file_exists(file_info[i].filepath))
+        //     {
+        //         printf("%s không tồn tại!\n", file_info[i].filename);
+        //         const char *response = "File no exist";
+        //         send_response(client_socket, response);
+
+        //         receive_file(client_socket, full_path);
+        //         const char *send_file_message = "File received successfully.";
+        //         send_response(client_socket, send_file_message);
+        //         // receive_file(client_socket, full_path);
+        //         // const char *response = "File received successfully.";
+        //         // send_response(client_socket, response);
+        //     }
+        //     else
+        //     {
+        //         printf("%s tồn tại!\n", file_info[i].filename);
+        //         const char *response = "File exist";
+        //         send_response(client_socket, response);
+        //     }
+        //     printf("\n\n");
         // }
     } 
+
     else {
         printf("Đường dẫn %s/%s không tồn tại.\n", absolute_path, dir_path);
         const char *response_message = "folder no exists";
