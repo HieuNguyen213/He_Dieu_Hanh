@@ -652,23 +652,24 @@ int main() {
                         // Hai tên file giống nhau
                         if (!(memcmp(file_list[index].hash, file_info[i].hash, sizeof(file_list[index].hash)) == 0))
                         {
-                            // printf("File %s có thay đổi\n", file_list[index].filename);
-                            // printf("Server_Hash Server (MD5): ");
-                            // for (int j = 0; j < 16; j++) {
-                            //     printf("%02x", file_list[index].hash[j]);
-                            // }
-                            // printf("\n");
-                            // printf("Server_Hash Client (MD5): ");
-                            // for (int j = 0; j < 16; j++) {
-                            //     printf("%02x", file_info[i].hash[j]);
-                            // }
-                            // printf("\n");
+                            printf("File %s có thay đổi\n", file_list[index].filename);
+                            printf("Server_Hash Server (MD5): ");
+                            for (int j = 0; j < 16; j++) {
+                                printf("%02x", file_list[index].hash[j]);
+                            }
+                            printf("\n");
+                            printf("Server_Hash Client (MD5): ");
+                            for (int j = 0; j < 16; j++) {
+                                printf("%02x", file_info[i].hash[j]);
+                            }
+                            printf("\n");
                             const char *response = "File change";
                             send_response(client_socket, response);
                             receive_file(client_socket, full_path);
                             const char *send_file_message = "File received successfully.";
                             send_response(client_socket, send_file_message);
                             printf("File thay đổi là: %s\n", file_list[index].filename);
+                            break;
                         }
 
                         else
@@ -676,6 +677,7 @@ int main() {
                             printf("File %s không thay đổi\n", file_list[index].filename);
                             const char *response = "File no change";
                             send_response(client_socket, response);
+                            break;
                         }
                     }
                 }
