@@ -17,6 +17,7 @@
 
 uint8_t folder_exist = TRUE;
 uint8_t file_exist = TRUE;
+uint8_t file_no_change = TRUE;
 
 int is_directory(const char *path);
 void receive_response(int client_fd);
@@ -280,6 +281,16 @@ void receive_response(int client_fd) {
         printf("Server_File exist\n");
         file_exist = TRUE;
     }
+    else if(strcmp(buffer, "File change") == 0)
+    {
+        printf("Server_File change!\n");
+        file_no_change = FALSE;
+    }
+    else if(strcmp(buffer, "File no change") == 0)
+    {
+        printf("Server_File no change!\n");
+        file_no_change = TRUE;
+    }
 }
 
 // Hàm để kiểm tra xem một thư mục có phải là thư mục không
@@ -524,6 +535,15 @@ void handle_option(int client_fd, int option) {
                         printf("temp2: %s\n", temp);
                         send_file(client_fd, temp, different_path);
                         receive_response(client_fd);
+                    }
+                    else
+                    {
+                        receive_response(client_fd);
+                        if(file_no_change == FALSE)
+                        {
+                            send_file(client_fd, temp, different_path);
+                            receive_response(client_fd);
+                        }
                     }
                     printf("\n\n");
                 }
