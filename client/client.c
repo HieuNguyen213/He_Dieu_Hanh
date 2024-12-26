@@ -8,6 +8,7 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #include <time.h>
+#include <errno.h>  
 
 #define SERVER_ADDR "127.0.0.1"  // Địa chỉ IP của server
 #define PORT 8080
@@ -30,6 +31,188 @@ typedef struct {
     unsigned char hash[16]; // Hash của tệp tin (MD5)
     time_t timestamp;
 } FileInfo;
+
+int create_directory_recursively(const char *path) {
+    char temp_path[512];
+    char *p = NULL;
+    size_t len;
+
+    // Sao chép đường dẫn vào biến tạm
+    snprintf(temp_path, sizeof(temp_path), "%s", path);
+
+    // Lặp qua các phần của đường dẫn và tạo từng thư mục một
+    len = strlen(temp_path);
+    if (temp_path[len - 1] == '/') {
+        temp_path[len - 1] = '\0'; // Xóa ký tự '/' cuối nếu có
+    }
+
+    // Tạo từng thư mục một
+    for (p = temp_path + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0'; // Tạm thời thay '/' thành '\0' để tạo thư mục
+            if (mkdir(temp_path, 0777) == -1 && errno != EEXIST) {
+                perror("Lỗi tạo thư mục");
+                return -1;
+            }
+            *p = '/'; // Khôi phục lại dấu '/'
+        }
+    }
+
+    // Tạo thư mục cuối cùng
+    if (mkdir(temp_path, 0777) == -1 && errno != EEXIST) {
+        perror("Lỗi tạo thư mục");
+        return -1;
+    }
+
+    return 0;
+}
+
+// Hàm nhận thông tin file từ server và lưu vào file_info
+void receive_file_info(int client_fd, FileInfo *file_info) {
+    char buffer[BUFFER_SIZE];
+
+    // Nhận tên file
+    //memset(buffer, 0, sizeof(buffer));
+    recv(client_fd, buffer, sizeof(buffer), 0);
+    printf("Nhận tên file: %s\n", buffer);
+    strncpy(file_info->filename, buffer, sizeof(file_info->filename) - 1);  // Lưu tên file vào struct
+    // Phản hồi cho client
+    const char *sp1 = "Receive file name ok!";
+    send_response(client_fd, sp1);
+
+    // Nhận đường dẫn file
+    //memset(buffer, 0, sizeof(buffer));
+    recv(client_fd, buffer, sizeof(buffer), 0);
+    printf("Nhận đường dẫn file: %s\n", buffer);
+    strncpy(file_info->filepath, buffer, sizeof(file_info->filepath) - 1);  // Lưu đường dẫn vào struct
+    // Phản hồi cho client
+    const char *sp2 = "Receive path file ok!";
+    send_response(client_fd, sp2);
+
+    // Nhận kích thước file
+    //memset(buffer, 0, sizeof(buffer));
+    recv(client_fd, buffer, sizeof(buffer), 0);
+    printf("Nhận kích thước file: %s\n", buffer);
+    file_info->filesize = atol(buffer);  // Lưu kích thước file vào struct
+    const char *sp3 = "Receive file size ok!";
+    send_response(client_fd, sp3);
+
+    // Nhận hash của file
+    //memset(buffer, 0, sizeof(buffer));
+    recv(client_fd, buffer, sizeof(buffer), 0);
+    printf("Nhận hash: %s\n", buffer);
+
+    // Xử lý và lưu hash vào struct
+    int hash_index = 0;
+    while (hash_index < 32 && sscanf(buffer + hash_index * 2, "%02hhx", &file_info->hash[hash_index]) == 1) {
+        hash_index++;
+    }
+
+    // Phản hồi cho client
+    const char *sp4 = "Receive hash file ok!";
+    send_response(client_fd, sp4);
+}
+
+//hàm nhận file count
+void receive_file_count(int client_fd, int *file_count) {
+    int network_file_count;
+
+    // Nhận dữ liệu
+    if (recv(client_fd, &network_file_count, sizeof(network_file_count), 0) > 0) {
+        // Chuyển đổi thứ tự byte từ network byte order sang host byte order
+        *file_count = ntohl(network_file_count);
+        printf("Nhận file_count: %d\n", *file_count);
+    } else {
+        perror("Nhận file_count thất bại");
+    }
+}
+
+//Hàm nhận file
+void receive_file(int socket_fd, const char *base_path) {
+    char path_buffer[BUFFER_SIZE];
+    char file_name[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
+
+    // Nhận đường dẫn thư mục từ server
+    ssize_t path_len = recv(socket_fd, path_buffer, BUFFER_SIZE, 0);
+
+    if (path_len == -1) {
+        perror("Lỗi nhận đường dẫn");
+        return;
+    }
+    path_buffer[path_len] = '\0';
+
+    printf("path_buffer: %s\n", path_buffer);
+
+    // Nhận tên file từ client
+    ssize_t file_name_len = recv(socket_fd, file_name, BUFFER_SIZE, 0);
+    if (file_name_len == -1) {
+        perror("Lỗi nhận tên file");
+        return;
+    }
+    file_name[file_name_len] = '\0';  // Đảm bảo kết thúc chuỗi
+    const char *response_message = "receive file name successful";
+    send_response(socket_fd, response_message);
+    printf("file name: %s\n", file_name);
+
+    // Tạo đường dẫn đầy đủ cho file (bao gồm thư mục base_path, đường dẫn thư mục từ client và tên file)
+    char full_file_path[BUFFER_SIZE];
+
+    if(path_len == 1)
+    {
+        snprintf(full_file_path, sizeof(full_file_path), "%s", base_path);
+    }
+    else{
+        snprintf(full_file_path, sizeof(full_file_path), "%s%s", base_path, path_buffer);
+    }
+    printf("đường dẫn thư mục tạo để ghi: %s\n", full_file_path);
+
+    if (create_directory_recursively(full_file_path) == 0) {
+        printf("Các thư mục đã được tạo thành công.\n");
+    } else {
+        printf("Có lỗi khi tạo thư mục.\n");
+    }
+
+    char full_file_path2[BUFFER_SIZE];
+    snprintf(full_file_path2, sizeof(full_file_path2), "%s%s", full_file_path, file_name);
+
+    printf("file name: %s\n", file_name);
+    printf("đường dẫn file để ghi là: %s\n", full_file_path2);
+
+    // Nhận kích thước file
+    long file_size;
+    if (recv(socket_fd, &file_size, sizeof(file_size), 0) <= 0) {
+        perror("Lỗi nhận kích thước file");
+        return;
+    }
+    printf("Kích thước file: %ld bytes\n", file_size);
+
+    // Mở file để ghi dữ liệu nhận được
+    int bytes_received;
+    FILE *file = fopen(full_file_path2, "wb");
+    if (!file) {
+        perror("Lỗi mở file để ghi");
+        return;
+    }
+    printf("Receiving file: %s\n", file_name);
+
+    char buffer2[BUFFER_SIZE];
+    long total_received = 0;
+    
+    while (total_received < file_size) {
+        ssize_t bytes_received = recv(socket_fd, buffer2, sizeof(buffer2), 0);
+        if (bytes_received <= 0) {
+            perror("Lỗi nhận dữ liệu file");
+            fclose(file);
+            return;
+        }
+        fwrite(buffer2, 1, bytes_received, file);
+        total_received += bytes_received;
+    }
+
+    fclose(file);
+    printf("File '%s' received successfully!\n", file_name);
+}
 
 //Hàm để nhận và in ra cây thư mục trên server
 void receive_and_print_tree(int sock) {
@@ -228,6 +411,16 @@ void connect_to_server(int client_fd, struct sockaddr_in *server_addr) {
 // Hàm gửi yêu cầu đến server
 void send_request(int client_fd, const char *message) {
     send(client_fd, message, strlen(message), 0);
+}
+
+//Hàm gửi phàn hồi đến server
+// Hàm gửi response từ server về client
+void send_response(int client_socket, const char *message) {
+    if (send(client_socket, message, strlen(message), 0) < 0) {
+        perror("Failed to send response");
+    } else {
+        printf("Response sent to server: %s\n", message);
+    }
 }
 
 // Hàm nhận phản hồi từ server
@@ -499,6 +692,7 @@ void handle_option(int client_fd) {
                     }
                     printf("\n\n");
                 }
+                folder_exist = FALSE;
             }
             printf("\n");
         }
@@ -518,12 +712,63 @@ void handle_option(int client_fd) {
             printf("Đã gửi đường dẫn thư mục cần đồng bộ trên server: %s\n", dir_path);
             receive_response(client_fd);
 
-            if (check_directory_exists(dir_path_server)) {
-                printf("Thư mục tồn tại.\n");
-            } else {
-                printf("Thư mục không tồn tại.\n");
+            receive_response(client_fd);
+
+            //kiểm tra xem folder cần tải về có tồn tại trên server hay không
+            if(folder_exist == TRUE)
+            {   
+                FileInfo file_info_from_server[1000];
+                if (check_directory_exists(dir_path_server)) 
+                {
+                    printf("Thư mục lưu ở client tồn tại.\n");
+                    const char *response = "folder in client exists";
+                    send_response(client_fd, response);
+                    
+                    //đầu tiên cần nhận file count: số lượng file sẽ đồng bộ trên server
+                    int file_count_from_server;
+                    receive_file_count(client_fd, &file_count_from_server); 
+                    
+                    for(int i = 0; i < file_count_from_server; i++)
+                    {
+                        receive_file_info(client_fd, &file_info_from_server[i]);
+                        printf("Tệp tin: %s\n", file_info_from_server[i].filename);
+                        printf("Đường dẫn: %s\n", file_info_from_server[i].filepath);
+                        printf("Kích thước: %ld bytes\n", file_info_from_server[i].filesize);
+                        struct tm *time_info = localtime(&file_info_from_server[i].timestamp);
+                        printf("Thời gian sửa đổi của file là: %s", asctime(time_info));
+                        printf("Hash (MD5): ");
+                        for (int j = 0; j < 16; j++) {
+                            printf("%02x", file_info_from_server[i].hash[j]);
+                        }
+                        printf("\n\n");
+                    }
+                } 
+
+                else 
+                {
+                    printf("Thư mục lưu ở client không tồn tại.\n");
+                    //tại đây thì cứ tiến hành tải full thư mục từ server xuống thôi
+                    const char *response = "folder in client no exists";
+                    send_response(client_fd, response);
+
+                    //Nhận file
+                    char full_path_client[256]; 
+                    snprintf(full_path_client, sizeof(full_path_client), "%s/%s", dir_path_server, dir_path);
+                    while(client_fd >= 0)
+                    {
+                        receive_file(client_fd, full_path_client);
+                        const char *response = "File received successfully.";
+                        send_response(client_fd, response);
+                    }
+                }
+
+                folder_exist = FALSE;
             }
 
+            else
+            {
+                printf("Thư mục cần tải trên server không tồn tại.\n");
+            }
         }
 
         else
