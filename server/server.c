@@ -13,6 +13,7 @@
 
 #define PORT 8080
 #define BUFFER_SIZE 2048
+#define MAX_PATH 1024
 #define STORAGE_PATH "../common/storage2"
 #define HASH_SIZE 16
 
@@ -21,8 +22,10 @@
 
 uint8_t folder_exist = TRUE;
 uint8_t file_exist = TRUE;
+uint8_t file_in_client_exist = FALSE;
 uint8_t file_no_change = TRUE;
 uint8_t folder_client_exist = TRUE;
+uint8_t file_in_client_no_change = TRUE;
 
 typedef struct {
     char filename[1024];   // Tên tệp tin
@@ -43,6 +46,67 @@ time_t get_file_timestamp(const char *filename) {
         perror("Không thể lấy thông tin file");
         return -1;  // Trả về -1 nếu có lỗi
     }
+}
+
+// Hàm gửi thông tin file tới server
+void send_file_info(int client_fd, FileInfo *file_info) {
+    char buffer[BUFFER_SIZE];
+    memset(buffer, 0, sizeof(buffer));
+
+    // Gửi tên file
+    snprintf(buffer, sizeof(buffer), "%s", file_info->filename);
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi tên file
+    printf("Đã gửi tên file: %s\n", file_info->filename);
+
+    // Đợi phản hồi từ server
+    char response[BUFFER_SIZE];
+    memset(response, 0, sizeof(response));
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    printf("\n");
+    // Gửi đường dẫn file
+    memset(buffer, 0, sizeof(buffer));
+    snprintf(buffer, sizeof(buffer), "%s", file_info->filepath);
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi đường dẫn file
+    printf("Đã gửi đường dẫn: %s\n", file_info->filepath);
+
+    printf("\n");
+    // Đợi phản hồi từ server
+    memset(response, 0, sizeof(response));
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    printf("\n");
+    // Gửi kích thước file
+    memset(buffer, 0, sizeof(buffer));
+    snprintf(buffer, sizeof(buffer), "%ld bytes", file_info->filesize);
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi kích thước file
+    printf("Đã gửi kích thước file: %ld bytes\n", file_info->filesize);
+
+    // Đợi phản hồi từ server
+    memset(response, 0, sizeof(response));
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    // Gửi hash của file dưới dạng hex
+    // Khởi tạo buffer
+    char hash_buffer[65]; // 32 bytes * 2 ký tự cho mỗi byte + 1 ký tự null terminator
+    hash_buffer[0] = '\0'; // Đảm bảo chuỗi bắt đầu trống
+
+    // Ghép các giá trị hash vào buffer
+    for (int i = 0; i < 16; i++) {
+        snprintf(hash_buffer + strlen(hash_buffer), sizeof(hash_buffer) - strlen(hash_buffer), "%02x", file_info->hash[i]);
+    }
+
+    // Gửi toàn bộ hash dưới dạng hex
+    send(client_fd, hash_buffer, strlen(hash_buffer) + 1, 0);  // Gửi toàn bộ hash
+    printf("Đã gửi hash: %s\n", hash_buffer);
+
+    // Đợi phản hồi từ server sau khi gửi hết hash
+    memset(response, 0, sizeof(response));
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
 }
 
 //hàm gửi file count
@@ -257,6 +321,20 @@ void receive_response(int server_fd) {
     }
     else if (strcmp(buffer, "folder in client exists") == 0) {
         folder_client_exist = TRUE;
+    }
+    else if (strcmp(buffer, "File no exists") == 0) {
+        file_in_client_exist = FALSE;
+    }
+    else if (strcmp(buffer, "File exists") == 0) {
+        file_in_client_exist = TRUE;
+    }
+    else if(strcmp(buffer, "File no change") == 0)
+    {
+        file_in_client_no_change = TRUE;
+    }
+    else if(strcmp(buffer, "File change") == 0)
+    {
+        file_in_client_no_change = FALSE;
     }
 }
 
@@ -938,7 +1016,65 @@ int main() {
                     {
                         //Đầu tiên phải gửi file count đến cho client
                         send_file_count(client_socket, file_count);
-                        receive_response(client_socket);
+                        //receive_response(client_socket);
+
+                        //Gửi thông tin file
+                        char child_path[MAX_PATH];
+                        char temp[MAX_PATH];
+                        for(int i = 0; i < file_count; i++)
+                        {
+                            memset(child_path, 0, sizeof(child_path));
+                            memset(temp, 0, sizeof(temp));
+                            get_different_path(result_path, file_list[i].filepath, temp);
+                            if (strcmp(temp, "/") == 0 && strlen(temp) == 1) 
+                            {
+                                // Nếu child_path[i] chỉ có "/"
+                                strncpy(child_path, dir_path, MAX_PATH - 1);
+                            } 
+                            else 
+                            {
+                                // Ngược lại ghép dir_path, child_path[i], và file_list[i].filepath
+                                snprintf(child_path, MAX_PATH, "%s%s", dir_path, temp);
+                            }
+
+                            //gán child_path cho file_list[i].filepath để gửi đến client
+                            memset(temp, 0, sizeof(temp));
+                            strncpy(temp, file_list[i].filepath, MAX_PATH - 1);
+                            temp[MAX_PATH - 1] = '\0';
+
+                            strncpy(file_list[i].filepath, child_path, MAX_PATH - 1);
+                            file_list[i].filepath[MAX_PATH - 1] = '\0';
+
+                            printf("child_path: %s\n", file_list[i].filepath);
+                            send_file_info(client_socket, &file_list[i]);
+                            
+                            receive_response(client_socket);
+                            if(file_in_client_exist == FALSE)
+                            {
+                                strncpy(file_list[i].filepath, temp, MAX_PATH - 1);
+                                file_list[i].filepath[MAX_PATH - 1] = '\0';
+                                printf("file đó ở client không tồn tại!\n");
+                                send_file(client_socket, file_list[i].filepath, result_path);
+                                receive_response(client_socket);
+                                printf("\n");
+                            }
+                            else
+                            {
+                                printf("file đó ở client có tồn tại!\n");
+                                receive_response(client_socket);
+                                if(file_in_client_no_change == FALSE)
+                                {
+                                    strncpy(file_list[i].filepath, temp, MAX_PATH - 1);
+                                    file_list[i].filepath[MAX_PATH - 1] = '\0';
+                                    send_file(client_socket, file_list[i].filepath, result_path);
+                                    receive_response(client_socket);
+                                }
+                                else
+                                {
+                                    printf("File ở client không thay đổi gì so với server\n");
+                                }
+                            }
+                        }
                     }
                 } 
 
