@@ -10,12 +10,13 @@
 #include <time.h>
 #include <errno.h>  
 
-#define SERVER_ADDR "127.0.0.1"  // Địa chỉ IP của server
+//#define SERVER_ADDR "127.0.0.1"  // Địa chỉ IP của server
 #define PORT 8080
 #define BUFFER_SIZE 1024
 #define MAX_PATH    BUFFER_SIZE
 #define TRUE    1
 #define FALSE   0
+
 
 uint8_t folder_exist = TRUE;
 uint8_t file_exist = TRUE;
@@ -25,11 +26,11 @@ int is_directory(const char *path);
 void receive_response(int client_fd);
 
 typedef struct {
-    char filename[1024];   // Tên tệp tin
-    char filepath[1024];   // Đường dẫn đầy đủ đến tệp tin
-    long filesize;         // Kích thước tệp tin
-    unsigned char hash[16]; // Hash của tệp tin (MD5)
-    time_t timestamp;
+    char filename[1024];        // Tên tệp tin
+    char filepath[1024];        // Đường dẫn đầy đủ đến tệp tin
+    long filesize;              // Kích thước tệp tin
+    unsigned char hash[16];     // Hash của tệp tin (MD5)
+    time_t timestamp;           //Thời gian chỉnh sửa file
 } FileInfo;
 
 int create_directory_recursively(const char *path) {
@@ -217,16 +218,27 @@ void receive_file(int socket_fd, const char *base_path) {
 //Hàm để nhận và in ra cây thư mục trên server
 void receive_and_print_tree(int sock) {
     char buffer[2048];
+
+    int bytes_read = 0;
     
     // Nhận dữ liệu từ server và hiển thị
     while (1) {
         memset(buffer, 0, sizeof(buffer)); // Xóa nội dung buffer
-        int bytes_read = recv(sock, buffer, sizeof(buffer), 0);
+        int bytes_read = recv(sock, buffer, sizeof(buffer) - 1, 0);
+
+        buffer[bytes_read] = '\0'; // Đảm bảo chuỗi kết thúc
+
+        // Kiểm tra tín hiệu kết thúc
+        if (strstr(buffer, "END_OF_TREE") != NULL) {
+            break;
+        }
+
+        printf("%s", buffer); // Hiển thị dữ liệu
+
         if (bytes_read <= 0) {
             // Kết thúc khi không còn dữ liệu
             break;
         }
-        printf("%s", buffer); // Hiển thị dữ liệu
     }
 }
 
@@ -638,20 +650,6 @@ void handle_option(int client_fd) {
             // Liệt kê các tệp tin và lưu thông tin
             list_files(dir_path, file_list, &file_count);
 
-            // In ra thông tin của các tệp tin
-            for (int i = 0; i < file_count; i++) {
-                printf("Tệp tin: %s\n", file_list[i].filename);
-                printf("Đường dẫn: %s\n", file_list[i].filepath);
-                printf("Kích thước: %ld bytes\n", file_list[i].filesize);
-                struct tm *time_info = localtime(&file_list[i].timestamp);
-                printf("Thời gian sửa đổi của file là: %s", asctime(time_info));
-                printf("Hash (MD5): ");
-                for (int j = 0; j < 16; j++) {
-                    printf("%02x", file_list[i].hash[j]);
-                }
-                printf("\n\n");
-            }
-
             if(folder_exist == FALSE)
             {
                 //printf("Send all because folder no exists!");
@@ -670,8 +668,6 @@ void handle_option(int client_fd) {
             }
             else
             {
-                printf("Folder tồn tại rồi, khó xử lý hơn đấy!\n");
-
                 //Đầu tiên phải gửi file count đến cho server
                 send_file_count(client_fd, file_count);
                 printf("Đã gửi file count %d\n", file_count);
@@ -712,6 +708,7 @@ void handle_option(int client_fd) {
                     printf("\n\n");
                 }
                 folder_exist = FALSE;
+                getchar();
             }
             printf("\n");
         }
@@ -838,6 +835,7 @@ void handle_option(int client_fd) {
                             printf("\n");
                         }
                     }
+                    getchar();
                 } 
 
                 else 
@@ -879,22 +877,22 @@ void handle_option(int client_fd) {
         {
             //Gửi command đến cho server
             send(client_fd, command, strlen(command), 0);
-            printf("Đã gửi command đến server: %s\n", command);
             receive_response(client_fd);
 
             receive_and_print_tree(client_fd);
-
-            printf("OK, đã in ra màn hình!\n");
+            printf("\n");
         }
     }
 
-    else
-    {
-        return;
-    }
+    return;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("Ban chua cung cap menu.\n");
+        return 0;
+    }
+    const char *SERVER_ADDR = argv[1];
     int client_fd, option;
     struct sockaddr_in server_addr;
 
@@ -911,12 +909,9 @@ int main() {
     connect_to_server(client_fd, &server_addr);
 
     // Menu chính
-    while (1) {
-        //show_menu();
-        //scanf("%d", &option);
-        //handle_option(client_fd, option);
+    while (1) 
+    {
         handle_option(client_fd);
-        getchar();
     }
 
     return 0;
