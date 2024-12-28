@@ -621,7 +621,7 @@ void handle_option(int client_fd) {
     char dir_path_server[1024];
     int file_count = 0;
 
-    printf("Nhập chuỗi (rsync <thư mục nguồn> <thư mục đích>):\n");
+    printf("Nhập command:\n");
     fgets(input, sizeof(input), stdin);  // Đọc chuỗi từ người dùng
     input[strcspn(input, "\n")] = '\0';  // Loại bỏ ký tự xuống dòng nếu có
 
@@ -828,7 +828,7 @@ void handle_option(int client_fd) {
 
                             //Nhận file
                             char full_path_client[256]; 
-                            snprintf(full_path_client, sizeof(full_path_client), "%s/%s", dir_path_server, dir_path);
+                            snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_server);
                             receive_file(client_fd, full_path_client);
                             const char *rp1 = "File received successfully.";
                             send_response(client_fd, rp1);
@@ -847,7 +847,7 @@ void handle_option(int client_fd) {
 
                     //Nhận file
                     char full_path_client[256]; 
-                    snprintf(full_path_client, sizeof(full_path_client), "%s/%s", dir_path_server, dir_path);
+                    snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_server);
                     while(client_fd >= 0)
                     {
                         receive_file(client_fd, full_path_client);
@@ -877,6 +877,7 @@ void handle_option(int client_fd) {
         {
             //Gửi command đến cho server
             send(client_fd, command, strlen(command), 0);
+            printf("Đã gửi command đến server: %s\n", command);
             receive_response(client_fd);
 
             receive_and_print_tree(client_fd);
@@ -889,7 +890,7 @@ void handle_option(int client_fd) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Ban chua cung cap menu.\n");
+        printf("Ban chua cung cap IP.\n");
         return 0;
     }
     const char *SERVER_ADDR = argv[1];
@@ -909,8 +910,7 @@ int main(int argc, char *argv[]) {
     connect_to_server(client_fd, &server_addr);
 
     // Menu chính
-    while (1) 
-    {
+    while (1) {
         handle_option(client_fd);
     }
 

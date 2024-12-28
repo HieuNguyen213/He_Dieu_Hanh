@@ -28,10 +28,10 @@ uint8_t folder_client_exist = TRUE;
 uint8_t file_in_client_no_change = TRUE;
 
 typedef struct {
-    char filename[1024];   // Tên tệp tin
-    char filepath[1024];   // Đường dẫn đầy đủ đến tệp tin
-    long filesize;         // Kích thước tệp tin
-    unsigned char hash[16]; // Hash của tệp tin (MD5)
+    char filename[1024];        // Tên tệp tin
+    char filepath[1024];        // Đường dẫn đầy đủ đến tệp tin
+    long filesize;              // Kích thước tệp tin
+    unsigned char hash[16];     // Hash của tệp tin (MD5)
     time_t timestamp;
 } FileInfo;
 
@@ -753,14 +753,313 @@ void receive_file_info(int client_fd, FileInfo *file_info) {
     send_response(client_fd, sp4);
 }
 
-int main() {
-    //tạo thư mục lưu trữ
-    create_storage();
-
+//Hàm xử lí command
+void handle_command(int client_socket){
     char first_directory[BUFFER_SIZE];
     char absolute_path[1024]; // Đường dẫn tuyệt đối
     char full_path[1024]; // Đường dẫn đầy đủ
+    //nhận câu lệnh từ client
+    char command[10];
+    int command_receive;
+    command_receive = recv(client_socket, command, sizeof(command) - 1, 0);
+    // Đảm bảo chuỗi kết thúc bằng NULL
+    command[command_receive] = '\0';
+    printf("Đã nhận command từ client: %s\n", command);
+    const char *rp = "received command";
+    send_response(client_socket, rp);
 
+    if (strcmp(command, "rsync") == 0)
+    {
+        char dir_path[BUFFER_SIZE];
+        int file_count = 0;
+        //nhận đường dẫn thư mục ở client
+        int result = receive_directory_path(client_socket, dir_path, sizeof(dir_path));
+        if (result == 1) {
+            printf("Đường dẫn nhận được từ client: %s\n", dir_path);
+        } else {
+            printf("Lỗi khi nhận đường dẫn từ client\n");
+        }
+
+        memset(dir_path, '\0', sizeof(dir_path));
+        //nhận đường dẫn thư mục sẽ lưu trên server
+        receive_directory_path(client_socket, dir_path, sizeof(dir_path));
+
+        // Chuyển STORAGE_PATH thành đường dẫn tuyệt đối
+        if (realpath(STORAGE_PATH, absolute_path) == NULL) {
+            perror("Lỗi khi lấy đường dẫn tuyệt đối");
+            return 1;
+        }
+        
+
+        // Lấy thư mục đầu tiên
+        //get_last_directory(dir_path, first_directory);
+
+        // Nối đường dẫn tuyệt đối với đường dẫn nhận được
+        snprintf(full_path, sizeof(full_path), "%s/%s", absolute_path, dir_path);
+
+        printf("Đường dẫn thư mục sẽ lưu trên server: %s\n", full_path);
+
+        // In thư mục đầu tiên
+        printf("Thư mục sẽ lưu: %s\n", dir_path);
+
+        //remove_last_component(full_path);
+
+        if (check_path_exists(absolute_path, dir_path)) 
+        {
+            printf("Đường dẫn %s/%s tồn tại.\n", absolute_path, dir_path);
+            
+            const char *response_message = "folder exists";
+            send_response(client_socket, response_message);
+            FileInfo file_list[1000];  // Mảng lưu thông tin tệp tin duyệt trong server
+            FileInfo file_info[1000];   //Mảng lưu thông tin tệp tin nhận từ client
+
+            // Liệt kê các tệp tin và lưu thông tin
+            snprintf(absolute_path + strlen(absolute_path), sizeof(absolute_path) - strlen(absolute_path), "/%s", dir_path);
+            printf("absolute path: %s\n", absolute_path);
+            list_files(absolute_path, file_list, &file_count);
+
+            printf("\n\n");
+
+            int file_count_from_client;
+            receive_file_count(client_socket, &file_count_from_client);
+            printf("file count receive from client: %d\n", file_count_from_client);
+            const char *response = "File count received successfully.";
+            send_response(client_socket, response);
+
+            //Nhận thông tin file bên client gửi đến để so sánh
+            for(int i = 0; i < file_count_from_client; i++)
+            {
+                receive_file_info(client_socket, &file_info[i]);
+                const char *mess = "Receive infor file ok!";
+                send_response(client_socket, mess);
+                printf("\n");
+
+                //ghép đường dẫn
+                char full_path1[BUFFER_SIZE]; 
+                snprintf(full_path1, sizeof(full_path1), "%s%s%s", absolute_path, file_info[i].filepath, file_info[i].filename);
+                strncpy(file_info[i].filepath, full_path1, sizeof(file_info[i].filepath) - 1);
+                file_info[i].filepath[sizeof(file_info[i].filepath) - 1] = '\0';  // Đảm bảo chuỗi kết thúc đúng
+                remove_last_component(full_path1);
+
+                //In ra thông tin file nhận được
+                printf("ClientToServer_Tệp tin: %s\n", file_info[i].filename);
+                printf("ClientToServer_Đường dẫn: %s\n", file_info[i].filepath);
+                printf("ClientToServer_Kích thước: %ld bytes\n", file_info[i].filesize);
+                printf("ClientToServer_Hash (MD5): ");
+                for (int j = 0; j < 16; j++) {
+                    printf("%02x", file_info[i].hash[j]);
+                }
+                printf("\n");
+
+                //kiểm tra xem file có tồn tại hay là không (folder có tồn tại nhưng file chưa chắc đã tồn tại)
+                if(!check_file_exists(file_info[i].filepath))
+                {
+                    printf("%s không tồn tại!\n", file_info[i].filename);
+                    const char *response = "File no exist";
+                    send_response(client_socket, response);
+                    //remove_last_component(full_path);
+                    receive_file(client_socket, full_path);
+                    const char *send_file_message = "File received successfully.";
+                    send_response(client_socket, send_file_message);
+                    // receive_file(client_socket, full_path);
+                    // const char *response = "File received successfully.";
+                    // send_response(client_socket, response);
+                }
+                else
+                {            
+                    printf("%s tồn tại!\n", file_info[i].filename);
+                    printf("\n");
+                    const char *response = "File exist";
+                    send_response(client_socket, response);
+
+                    for(int index = 0; index < file_count; index++)
+                    {
+                        if (strcmp(file_list[index].filename, file_info[i].filename) == 0) {
+                            // Hai tên file giống nhau
+                            if (!(memcmp(file_list[index].hash, file_info[i].hash, sizeof(file_list[index].hash)) == 0))
+                            {
+                                printf("File %s có thay đổi\n", file_list[index].filename);
+                                printf("Server_Hash Server (MD5): ");
+                                for (int j = 0; j < 16; j++) {
+                                    printf("%02x", file_list[index].hash[j]);
+                                }
+                                printf("\n");
+                                printf("Server_Hash Client (MD5): ");
+                                for (int j = 0; j < 16; j++) {
+                                    printf("%02x", file_info[i].hash[j]);
+                                }
+                                printf("\n");
+                                const char *response = "File change";
+                                send_response(client_socket, response);
+                                receive_file(client_socket, full_path);
+                                const char *send_file_message = "File received successfully.";
+                                send_response(client_socket, send_file_message);
+                                printf("File thay đổi là: %s\n", file_list[index].filename);
+                                break;
+                            }
+
+                            else
+                            {
+                                printf("File %s không thay đổi\n", file_list[index].filename);
+                                const char *response = "File no change";
+                                send_response(client_socket, response);
+                                break;
+                            }
+                        }
+                    }
+                }
+                printf("\n\n");
+            }
+        } 
+
+        else {
+            printf("Đường dẫn %s/%s không tồn tại.\n", absolute_path, dir_path);
+            const char *response_message = "folder no exists";
+            send_response(client_socket, response_message);  
+            while(client_socket >= 0)
+            {
+                receive_file(client_socket, full_path);
+                const char *response = "File received successfully.";
+                send_response(client_socket, response);
+            }
+        }
+    }
+
+    else if(strcmp(command, "ls") == 0)
+    {
+        printf("Hiển thị cây thư mục!\n");
+        print_tree(STORAGE_PATH, 0, client_socket);
+        printf("Gửi xong cây thư mục!\n");
+    }
+
+    else if(strcmp(command, "clone") == 0)
+    {
+        FileInfo file_list[1000];
+        int file_count = 0;
+        char dir_path[BUFFER_SIZE];
+        //nhận đường dẫn thư mục từ client
+        int rs = receive_directory_path(client_socket, dir_path, sizeof(dir_path));
+        if (rs == 1) {
+            // Chuyển STORAGE_PATH thành đường dẫn tuyệt đối
+            if (realpath(STORAGE_PATH, absolute_path) == NULL) {
+                perror("Lỗi khi lấy đường dẫn tuyệt đối");
+                return 1;
+            }
+
+            // In ra giá trị dir_path trước khi ghép
+            printf("dir_path trước khi ghép: %s\n", dir_path);
+
+            // Ghép đường dẫn tuyệt đối với dir_path
+
+            char result_path[128];
+            // Kiểm tra và ghép chuỗi
+            if (dir_path[0] == '/') {
+                // Nếu dir_path đã là đường dẫn tuyệt đối
+                snprintf(result_path, sizeof(result_path), "%s%s", absolute_path, dir_path);
+            } else {
+                // Nếu dir_path là đường dẫn tương đối
+                snprintf(result_path, sizeof(result_path), "%s/%s", absolute_path, dir_path);
+            }
+            // In ra đường dẫn kết quả
+            printf("Đường dẫn nhận được từ client: %s\n", result_path);
+
+            //kiểm tra xem folder có tồn tại hay không
+            if (is_directory_exists(result_path)) {
+                printf("Thư mục '%s' tồn tại.\n", result_path);
+                const char *response_message = "folder exists";
+                send_response(client_socket, response_message);  
+                list_files(result_path, file_list, &file_count);
+
+                receive_response(client_socket);
+
+                //nhận phản hồi để kiểm tra xem folder lưu trên client có tồn tại hay không
+                //Nếu folder lưu trên client không tồn tại
+                if(folder_client_exist == FALSE)
+                {  
+                    //Nếu không tồn tại thì gửi toàn bộ xuống thư mục xuống
+                    // In ra thông tin của các tệp tin
+                    for (int i = 0; i < file_count; i++) {
+                        send_file(client_socket, file_list[i].filepath, result_path);
+                        receive_response(client_socket);
+                        printf("\n");
+                    }
+                    folder_client_exist = TRUE;
+                }
+
+                //Nếu folder lưu trên client tồn tại
+                else
+                {
+                    //Đầu tiên phải gửi file count đến cho client
+                    send_file_count(client_socket, file_count);
+                    //receive_response(client_socket);
+
+                    //Gửi thông tin file
+                    char child_path[MAX_PATH];
+                    char temp[MAX_PATH];
+                    for(int i = 0; i < file_count; i++)
+                    {
+                        memset(child_path, 0, sizeof(child_path));
+                        memset(temp, 0, sizeof(temp));
+                        get_different_path(result_path, file_list[i].filepath, temp);
+                        strncpy(child_path, temp, MAX_PATH - 1);
+
+                        //gán child_path cho file_list[i].filepath để gửi đến client
+                        memset(temp, 0, sizeof(temp));
+                        strncpy(temp, file_list[i].filepath, MAX_PATH - 1);
+                        temp[MAX_PATH - 1] = '\0';
+
+                        strncpy(file_list[i].filepath, child_path, MAX_PATH - 1);
+                        file_list[i].filepath[MAX_PATH - 1] = '\0';
+
+                        printf("child_path: %s\n", file_list[i].filepath);
+                        send_file_info(client_socket, &file_list[i]);
+                        
+                        receive_response(client_socket);
+                        if(file_in_client_exist == FALSE)
+                        {
+                            printf("file đó ở client không tồn tại!\n");
+                            strncpy(file_list[i].filepath, temp, MAX_PATH - 1);
+                            file_list[i].filepath[MAX_PATH - 1] = '\0';
+                            send_file(client_socket, file_list[i].filepath, result_path);
+                            receive_response(client_socket);
+                            printf("\n");
+                        }
+                        else
+                        {
+                            printf("file đó ở client có tồn tại!\n");
+                            receive_response(client_socket);
+                            if(file_in_client_no_change == FALSE)
+                            {
+                                strncpy(file_list[i].filepath, temp, MAX_PATH - 1);
+                                file_list[i].filepath[MAX_PATH - 1] = '\0';
+                                send_file(client_socket, file_list[i].filepath, result_path);
+                                receive_response(client_socket);
+                            }
+                            else
+                            {
+                                printf("File ở client không thay đổi gì so với server\n");
+                            }
+                        }
+                    }
+                }
+            } 
+
+            else {
+                printf("Thư mục '%s' không tồn tại.\n", result_path);
+                const char *response_message = "folder no exists";
+                send_response(client_socket, response_message);  
+            }
+        } 
+        else 
+        {
+            printf("Lỗi khi nhận đường dẫn từ client\n");
+        }
+    }
+}
+
+int main() {
+    //tạo thư mục lưu trữ
+    create_storage();
 
     int server_fd, client_socket;
     struct sockaddr_in server_addr, client_addr;
@@ -793,313 +1092,7 @@ int main() {
 
         while(1)
         {
-            printf("Lại\n");
-            //nhận câu lệnh từ client
-            char command[10];
-            int command_receive;
-            command_receive = recv(client_socket, command, sizeof(command) - 1, 0);
-            // Đảm bảo chuỗi kết thúc bằng NULL
-            command[command_receive] = '\0';
-            printf("Đã nhận command từ client: %s\n", command);
-            const char *rp = "received command";
-            send_response(client_socket, rp);
-
-            if (strcmp(command, "rsync") == 0)
-            {
-                char dir_path[BUFFER_SIZE];
-                int file_count = 0;
-                //nhận đường dẫn thư mục ở client
-                int result = receive_directory_path(client_socket, dir_path, sizeof(dir_path));
-                if (result == 1) {
-                    printf("Đường dẫn nhận được từ client: %s\n", dir_path);
-                } else {
-                    printf("Lỗi khi nhận đường dẫn từ client\n");
-                }
-
-                memset(dir_path, '\0', sizeof(dir_path));
-                //nhận đường dẫn thư mục sẽ lưu trên server
-                receive_directory_path(client_socket, dir_path, sizeof(dir_path));
-
-                // Chuyển STORAGE_PATH thành đường dẫn tuyệt đối
-                if (realpath(STORAGE_PATH, absolute_path) == NULL) {
-                    perror("Lỗi khi lấy đường dẫn tuyệt đối");
-                    return 1;
-                }
-                
-
-                // Lấy thư mục đầu tiên
-                //get_last_directory(dir_path, first_directory);
-
-                // Nối đường dẫn tuyệt đối với đường dẫn nhận được
-                snprintf(full_path, sizeof(full_path), "%s/%s", absolute_path, dir_path);
-
-                printf("Đường dẫn thư mục sẽ lưu trên server: %s\n", full_path);
-
-                // In thư mục đầu tiên
-                printf("Thư mục sẽ lưu: %s\n", dir_path);
-
-                //remove_last_component(full_path);
-
-                if (check_path_exists(absolute_path, dir_path)) 
-                {
-                    printf("Đường dẫn %s/%s tồn tại.\n", absolute_path, dir_path);
-                    
-                    const char *response_message = "folder exists";
-                    send_response(client_socket, response_message);
-                    FileInfo file_list[1000];  // Mảng lưu thông tin tệp tin duyệt trong server
-                    FileInfo file_info[1000];   //Mảng lưu thông tin tệp tin nhận từ client
-
-                    // Liệt kê các tệp tin và lưu thông tin
-                    snprintf(absolute_path + strlen(absolute_path), sizeof(absolute_path) - strlen(absolute_path), "/%s", dir_path);
-                    printf("absolute path: %s\n", absolute_path);
-                    list_files(absolute_path, file_list, &file_count);
-
-                    printf("\n\n");
-
-                    int file_count_from_client;
-                    receive_file_count(client_socket, &file_count_from_client);
-                    printf("file count receive from client: %d\n", file_count_from_client);
-                    const char *response = "File count received successfully.";
-                    send_response(client_socket, response);
-
-                    //Nhận thông tin file bên client gửi đến để so sánh
-                    for(int i = 0; i < file_count_from_client; i++)
-                    {
-                        receive_file_info(client_socket, &file_info[i]);
-                        const char *mess = "Receive infor file ok!";
-                        send_response(client_socket, mess);
-                        printf("\n");
-
-                        //ghép đường dẫn
-                        char full_path1[BUFFER_SIZE]; 
-                        snprintf(full_path1, sizeof(full_path1), "%s%s%s", absolute_path, file_info[i].filepath, file_info[i].filename);
-                        strncpy(file_info[i].filepath, full_path1, sizeof(file_info[i].filepath) - 1);
-                        file_info[i].filepath[sizeof(file_info[i].filepath) - 1] = '\0';  // Đảm bảo chuỗi kết thúc đúng
-                        remove_last_component(full_path1);
-
-                        //In ra thông tin file nhận được
-                        printf("ClientToServer_Tệp tin: %s\n", file_info[i].filename);
-                        printf("ClientToServer_Đường dẫn: %s\n", file_info[i].filepath);
-                        printf("ClientToServer_Kích thước: %ld bytes\n", file_info[i].filesize);
-                        printf("ClientToServer_Hash (MD5): ");
-                        for (int j = 0; j < 16; j++) {
-                            printf("%02x", file_info[i].hash[j]);
-                        }
-                        printf("\n");
-
-                        //kiểm tra xem file có tồn tại hay là không (folder có tồn tại nhưng file chưa chắc đã tồn tại)
-                        if(!check_file_exists(file_info[i].filepath))
-                        {
-                            printf("%s không tồn tại!\n", file_info[i].filename);
-                            const char *response = "File no exist";
-                            send_response(client_socket, response);
-                            //remove_last_component(full_path);
-                            receive_file(client_socket, full_path);
-                            const char *send_file_message = "File received successfully.";
-                            send_response(client_socket, send_file_message);
-                            // receive_file(client_socket, full_path);
-                            // const char *response = "File received successfully.";
-                            // send_response(client_socket, response);
-                        }
-                        else
-                        {            
-                            printf("%s tồn tại!\n", file_info[i].filename);
-                            printf("\n");
-                            const char *response = "File exist";
-                            send_response(client_socket, response);
-
-                            for(int index = 0; index < file_count; index++)
-                            {
-                                if (strcmp(file_list[index].filename, file_info[i].filename) == 0) {
-                                    // Hai tên file giống nhau
-                                    if (!(memcmp(file_list[index].hash, file_info[i].hash, sizeof(file_list[index].hash)) == 0))
-                                    {
-                                        printf("File %s có thay đổi\n", file_list[index].filename);
-                                        printf("Server_Hash Server (MD5): ");
-                                        for (int j = 0; j < 16; j++) {
-                                            printf("%02x", file_list[index].hash[j]);
-                                        }
-                                        printf("\n");
-                                        printf("Server_Hash Client (MD5): ");
-                                        for (int j = 0; j < 16; j++) {
-                                            printf("%02x", file_info[i].hash[j]);
-                                        }
-                                        printf("\n");
-                                        const char *response = "File change";
-                                        send_response(client_socket, response);
-                                        receive_file(client_socket, full_path);
-                                        const char *send_file_message = "File received successfully.";
-                                        send_response(client_socket, send_file_message);
-                                        printf("File thay đổi là: %s\n", file_list[index].filename);
-                                        break;
-                                    }
-
-                                    else
-                                    {
-                                        printf("File %s không thay đổi\n", file_list[index].filename);
-                                        const char *response = "File no change";
-                                        send_response(client_socket, response);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        printf("\n\n");
-                    }
-                } 
-
-                else {
-                    printf("Đường dẫn %s/%s không tồn tại.\n", absolute_path, dir_path);
-                    const char *response_message = "folder no exists";
-                    send_response(client_socket, response_message);  
-                    while(client_socket >= 0)
-                    {
-                        receive_file(client_socket, full_path);
-                        const char *response = "File received successfully.";
-                        send_response(client_socket, response);
-                    }
-                }
-            }
-
-            else if(strcmp(command, "ls") == 0)
-            {
-                printf("Hiển thị cây thư mục!\n");
-                print_tree(STORAGE_PATH, 0, client_socket);
-                printf("Gửi xong cây thư mục!\n");
-            }
-
-            else if(strcmp(command, "clone") == 0)
-            {
-                FileInfo file_list[1000];
-                int file_count = 0;
-                char dir_path[BUFFER_SIZE];
-                //nhận đường dẫn thư mục từ client
-                int rs = receive_directory_path(client_socket, dir_path, sizeof(dir_path));
-                if (rs == 1) {
-                    // Chuyển STORAGE_PATH thành đường dẫn tuyệt đối
-                    if (realpath(STORAGE_PATH, absolute_path) == NULL) {
-                        perror("Lỗi khi lấy đường dẫn tuyệt đối");
-                        return 1;
-                    }
-
-                    // In ra giá trị dir_path trước khi ghép
-                    printf("dir_path trước khi ghép: %s\n", dir_path);
-
-                    // Ghép đường dẫn tuyệt đối với dir_path
-
-                    char result_path[128];
-                    // Kiểm tra và ghép chuỗi
-                    if (dir_path[0] == '/') {
-                        // Nếu dir_path đã là đường dẫn tuyệt đối
-                        snprintf(result_path, sizeof(result_path), "%s%s", absolute_path, dir_path);
-                    } else {
-                        // Nếu dir_path là đường dẫn tương đối
-                        snprintf(result_path, sizeof(result_path), "%s/%s", absolute_path, dir_path);
-                    }
-                    // In ra đường dẫn kết quả
-                    printf("Đường dẫn nhận được từ client: %s\n", result_path);
-
-                    //kiểm tra xem folder có tồn tại hay không
-                    if (is_directory_exists(result_path)) {
-                        printf("Thư mục '%s' tồn tại.\n", result_path);
-                        const char *response_message = "folder exists";
-                        send_response(client_socket, response_message);  
-                        list_files(result_path, file_list, &file_count);
-
-                        receive_response(client_socket);
-
-                        //nhận phản hồi để kiểm tra xem folder lưu trên client có tồn tại hay không
-                        //Nếu folder lưu trên client không tồn tại
-                        if(folder_client_exist == FALSE)
-                        {  
-                            //Nếu không tồn tại thì gửi toàn bộ xuống thư mục xuống
-                            // In ra thông tin của các tệp tin
-                            for (int i = 0; i < file_count; i++) {
-                                send_file(client_socket, file_list[i].filepath, result_path);
-                                receive_response(client_socket);
-                                printf("\n");
-                            }
-                            folder_client_exist = TRUE;
-                        }
-
-                        //Nếu folder lưu trên client tồn tại
-                        else
-                        {
-                            //Đầu tiên phải gửi file count đến cho client
-                            send_file_count(client_socket, file_count);
-                            //receive_response(client_socket);
-
-                            //Gửi thông tin file
-                            char child_path[MAX_PATH];
-                            char temp[MAX_PATH];
-                            for(int i = 0; i < file_count; i++)
-                            {
-                                memset(child_path, 0, sizeof(child_path));
-                                memset(temp, 0, sizeof(temp));
-                                get_different_path(result_path, file_list[i].filepath, temp);
-                                if (strcmp(temp, "/") == 0 && strlen(temp) == 1) 
-                                {
-                                    // Nếu child_path[i] chỉ có "/"
-                                    strncpy(child_path, dir_path, MAX_PATH - 1);
-                                } 
-                                else 
-                                {
-                                    // Ngược lại ghép dir_path, child_path[i], và file_list[i].filepath
-                                    snprintf(child_path, MAX_PATH, "%s%s", dir_path, temp);
-                                }
-
-                                //gán child_path cho file_list[i].filepath để gửi đến client
-                                memset(temp, 0, sizeof(temp));
-                                strncpy(temp, file_list[i].filepath, MAX_PATH - 1);
-                                temp[MAX_PATH - 1] = '\0';
-
-                                strncpy(file_list[i].filepath, child_path, MAX_PATH - 1);
-                                file_list[i].filepath[MAX_PATH - 1] = '\0';
-
-                                printf("child_path: %s\n", file_list[i].filepath);
-                                send_file_info(client_socket, &file_list[i]);
-                                
-                                receive_response(client_socket);
-                                if(file_in_client_exist == FALSE)
-                                {
-                                    strncpy(file_list[i].filepath, temp, MAX_PATH - 1);
-                                    file_list[i].filepath[MAX_PATH - 1] = '\0';
-                                    printf("file đó ở client không tồn tại!\n");
-                                    send_file(client_socket, file_list[i].filepath, result_path);
-                                    receive_response(client_socket);
-                                    printf("\n");
-                                }
-                                else
-                                {
-                                    printf("file đó ở client có tồn tại!\n");
-                                    receive_response(client_socket);
-                                    if(file_in_client_no_change == FALSE)
-                                    {
-                                        strncpy(file_list[i].filepath, temp, MAX_PATH - 1);
-                                        file_list[i].filepath[MAX_PATH - 1] = '\0';
-                                        send_file(client_socket, file_list[i].filepath, result_path);
-                                        receive_response(client_socket);
-                                    }
-                                    else
-                                    {
-                                        printf("File ở client không thay đổi gì so với server\n");
-                                    }
-                                }
-                            }
-                        }
-                    } 
-
-                    else {
-                        printf("Thư mục '%s' không tồn tại.\n", result_path);
-                        const char *response_message = "folder no exists";
-                        send_response(client_socket, response_message);  
-                    }
-                } 
-                else 
-                {
-                    printf("Lỗi khi nhận đường dẫn từ client\n");
-                }
-            }
+            handle_command(client_socket);
         }
     }
 
