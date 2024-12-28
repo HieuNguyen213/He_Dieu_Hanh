@@ -14,7 +14,7 @@
 #define PORT 8080
 #define BUFFER_SIZE 2048
 #define MAX_PATH 1024
-#define STORAGE_PATH "../storage2"
+#define STORAGE_PATH "../storage3"
 #define HASH_SIZE 16
 
 #define TRUE 1
