@@ -26,6 +26,7 @@ uint8_t file_in_client_exist = FALSE;
 uint8_t file_no_change = TRUE;
 uint8_t folder_client_exist = TRUE;
 uint8_t file_in_client_no_change = TRUE;
+uint8_t receive_folder_done = FALSE;
 
 typedef struct {
     char filename[1024];        // Tên tệp tin
@@ -104,6 +105,17 @@ void send_file_info(int client_fd, FileInfo *file_info) {
     printf("Đã gửi hash: %s\n", hash_buffer);
 
     // Đợi phản hồi từ server sau khi gửi hết hash
+    memset(response, 0, sizeof(response));
+    recv(client_fd, response, sizeof(response), 0);
+    printf("Phản hồi từ server: %s\n", response);
+
+    // Gửi timestamp
+    memset(buffer, 0, sizeof(buffer));
+    snprintf(buffer, sizeof(buffer), "%ld", (long)file_info->timestamp); // Chuyển `time_t` thành `long` để in
+    send(client_fd, buffer, strlen(buffer) + 1, 0);  // Gửi timestamp
+    printf("Đã gửi timestamp: %ld\n", (long)file_info->timestamp);
+
+    // Đợi phản hồi từ server sau khi gửi timestamp
     memset(response, 0, sizeof(response));
     recv(client_fd, response, sizeof(response), 0);
     printf("Phản hồi từ server: %s\n", response);
@@ -343,6 +355,10 @@ void receive_response(int server_fd) {
     {
         file_in_client_no_change = FALSE;
     }
+    else if(strcmp(buffer, "Send folder done") == 0)
+    {
+        receive_folder_done = TRUE;
+    }
 }
 
 int create_directory_recursively(const char *path) {
@@ -385,6 +401,9 @@ void receive_file(int socket_fd, const char *base_path) {
     char file_name[BUFFER_SIZE];
     char buffer[BUFFER_SIZE];
 
+    memset(path_buffer, 0, sizeof(path_buffer));
+
+
     // Nhận đường dẫn thư mục từ client
     ssize_t path_len = recv(socket_fd, path_buffer, BUFFER_SIZE, 0);
 
@@ -395,6 +414,12 @@ void receive_file(int socket_fd, const char *base_path) {
     path_buffer[path_len] = '\0';
 
     printf("path_buffer: %s\n", path_buffer);
+
+    // Kiểm tra tín hiệu kết thúc
+    if (strstr(path_buffer, "END_OF_TRANSFER") != NULL) {
+        receive_folder_done = TRUE;
+        return;
+    }
 
     // Nhận tên file từ client
     ssize_t file_name_len = recv(socket_fd, file_name, BUFFER_SIZE, 0);
@@ -861,9 +886,6 @@ void handle_command(int client_socket){
                     receive_file(client_socket, full_path);
                     const char *send_file_message = "File received successfully.";
                     send_response(client_socket, send_file_message);
-                    // receive_file(client_socket, full_path);
-                    // const char *response = "File received successfully.";
-                    // send_response(client_socket, response);
                 }
                 else
                 {            
@@ -919,6 +941,11 @@ void handle_command(int client_socket){
             while(client_socket >= 0)
             {
                 receive_file(client_socket, full_path);
+                if(receive_folder_done == TRUE)
+                {
+                    receive_folder_done = FALSE;
+                    break;
+                }
                 const char *response = "File received successfully.";
                 send_response(client_socket, response);
             }
@@ -983,6 +1010,9 @@ void handle_command(int client_socket){
                         receive_response(client_socket);
                         printf("\n");
                     }
+                    char end_signal[] = "END_OF_TRANSFER\n";
+                    printf("Sending end signal: %s\n", end_signal);
+                    send(client_socket, end_signal, strlen(end_signal), 0);
                     folder_client_exist = TRUE;
                 }
 

@@ -21,6 +21,7 @@
 uint8_t folder_exist = TRUE;
 uint8_t file_exist = TRUE;
 uint8_t file_no_change = TRUE;
+uint8_t receive_folder_done = FALSE;
 
 int is_directory(const char *path);
 void receive_response(int client_fd);
@@ -112,6 +113,13 @@ void receive_file_info(int client_fd, FileInfo *file_info) {
     // Phản hồi cho client
     const char *sp4 = "Receive hash file ok!";
     send_response(client_fd, sp4);
+
+    // Nhận timestamp
+    recv(client_fd, buffer, sizeof(buffer), 0);
+    printf("Nhận timestamp: %s\n", buffer);
+    file_info->timestamp = (time_t)atol(buffer);  // Lưu timestamp vào struct
+    const char *sp5 = "Receive timestamp ok!";
+    send_response(client_fd, sp5);
 }
 
 //hàm nhận file count
@@ -144,6 +152,12 @@ void receive_file(int socket_fd, const char *base_path) {
     path_buffer[path_len] = '\0';
 
     printf("path_buffer: %s\n", path_buffer);
+
+    // Kiểm tra tín hiệu kết thúc
+    if (strstr(path_buffer, "END_OF_TRANSFER") != NULL) {
+        receive_folder_done = TRUE;
+        return;
+    }
 
     // Nhận tên file từ client
     ssize_t file_name_len = recv(socket_fd, file_name, BUFFER_SIZE, 0);
@@ -615,17 +629,17 @@ void send_file_info(int client_fd, FileInfo *file_info) {
 // Hàm thực thi các tùy chọn
 void handle_option(int client_fd) {
     char input[1024];
-    char command[16];         // Lệnh đầu tiên (dự kiến là "rsync")
+    char command[16];      
     char message[BUFFER_SIZE];
     char dir_path[1024];
-    char dir_path_server[1024];
+    char dir_path_2[1024];
     int file_count = 0;
 
     printf("Nhập command:\n");
     fgets(input, sizeof(input), stdin);  // Đọc chuỗi từ người dùng
     input[strcspn(input, "\n")] = '\0';  // Loại bỏ ký tự xuống dòng nếu có
 
-    if (sscanf(input, "%15s %127s %127s", command, dir_path, dir_path_server) == 3)
+    if (sscanf(input, "%15s %127s %127s", command, dir_path, dir_path_2) == 3)
     {
         if (strcmp(command, "rsync") == 0)
         {
@@ -641,8 +655,8 @@ void handle_option(int client_fd) {
             receive_response(client_fd);
 
             // Gửi đường dẫn thư mục sẽ lưu trên server
-            send(client_fd, dir_path_server, strlen(dir_path_server), 0);
-            printf("Đã gửi đường dẫn thư mục đến server: %s\n", dir_path_server);
+            send(client_fd, dir_path_2, strlen(dir_path_2), 0);
+            printf("Đã gửi đường dẫn thư mục đến server: %s\n", dir_path_2);
             receive_response(client_fd);
 
             receive_response(client_fd);
@@ -652,7 +666,6 @@ void handle_option(int client_fd) {
 
             if(folder_exist == FALSE)
             {
-                //printf("Send all because folder no exists!");
                 folder_exist = TRUE;
                 for (int i = 0; i < file_count; i++)
                 {
@@ -665,6 +678,9 @@ void handle_option(int client_fd) {
                     send_file(client_fd, file_list[i].filepath, different_path);
                     receive_response(client_fd);
                 }
+                char end_signal[] = "END_OF_TRANSFER\n";
+                printf("Sending end signal: %s\n", end_signal);
+                send(client_fd, end_signal, strlen(end_signal), 0);
             }
             else
             {
@@ -708,7 +724,7 @@ void handle_option(int client_fd) {
                     printf("\n\n");
                 }
                 folder_exist = FALSE;
-                getchar();
+                //getchar();
             }
             printf("\n");
         }
@@ -719,10 +735,10 @@ void handle_option(int client_fd) {
             int temp_file_count;
             printf("Đồng bộ từ server về client!\n");
             printf("Thư mục muốn đồng bộ ở server: %s\n", dir_path);
-            printf("Thư mục sẽ lưu ở client: %s\n", dir_path_server);
+            printf("Thư mục sẽ lưu ở client: %s\n", dir_path_2);
 
             //Lấy thông tin các file trong thư mục lưu ở client
-            list_files(dir_path_server, file_list_in_client, &temp_file_count);
+            list_files(dir_path_2, file_list_in_client, &temp_file_count);
 
             send(client_fd, command, strlen(command), 0);
             printf("Đã gửi command đến server: %s\n", command);
@@ -739,7 +755,7 @@ void handle_option(int client_fd) {
             if(folder_exist == TRUE)
             {   
                 FileInfo file_info_from_server[1000];
-                if (check_directory_exists(dir_path_server)) 
+                if (check_directory_exists(dir_path_2)) 
                 {
                     printf("Thư mục lưu ở client tồn tại.\n");
                     const char *response = "folder in client exists";
@@ -759,11 +775,11 @@ void handle_option(int client_fd) {
 
                         // Kiểm tra xem ký tự cuối cùng có phải là '/' không
                         if (file_info_from_server[i].filepath[strlen(file_info_from_server[i].filepath) - 1] == '/') {
-                            snprintf(temp, MAX_PATH, "%s/%s%s", dir_path_server, file_info_from_server[i].filepath, file_info_from_server[i].filename);
+                            snprintf(temp, MAX_PATH, "%s/%s%s", dir_path_2, file_info_from_server[i].filepath, file_info_from_server[i].filename);
                         } 
                         else 
                         {
-                            snprintf(temp, MAX_PATH, "%s/%s/%s", dir_path_server, file_info_from_server[i].filepath, file_info_from_server[i].filename);
+                            snprintf(temp, MAX_PATH, "%s/%s/%s", dir_path_2, file_info_from_server[i].filepath, file_info_from_server[i].filename);
                         }
 
                         printf("temp: %s\n", temp);
@@ -777,11 +793,12 @@ void handle_option(int client_fd) {
                             send_response(client_fd, response2);
 
                             char full_path_client[256]; 
-                            snprintf(full_path_client, sizeof(full_path_client), "%s/%s", dir_path_server, dir_path);
+                            snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_2, dir_path);
                             for(int index = 0; index < temp_file_count; index++)
                             {
                                 if (strcmp(file_list_in_client[index].filename, file_info_from_server[i].filename) == 0) {
                                     // Hai tên file giống nhau
+                                    
                                     if (!(memcmp(file_list_in_client[index].hash, file_info_from_server[i].hash, sizeof(file_list_in_client[index].hash)) == 0))
                                     {
                                         printf("\n");
@@ -807,6 +824,15 @@ void handle_option(int client_fd) {
                                                 printf("File thay đổi là: %s\n", file_list_in_client[index].filename);
                                             }
                                         }
+                                        else
+                                        {
+                                            const char *rpp = "File change";
+                                            send_response(client_fd, rpp);
+                                            receive_file(client_fd, full_path_client);
+                                            const char *send_file_message = "File received successfully.";
+                                            send_response(client_fd, send_file_message);
+                                            printf("File thay đổi là: %s\n", file_list_in_client[index].filename);
+                                        }
                                         break;
                                     }
 
@@ -828,14 +854,14 @@ void handle_option(int client_fd) {
 
                             //Nhận file
                             char full_path_client[256]; 
-                            snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_server);
+                            snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_2);
                             receive_file(client_fd, full_path_client);
                             const char *rp1 = "File received successfully.";
                             send_response(client_fd, rp1);
                             printf("\n");
                         }
                     }
-                    getchar();
+                    //getchar();
                 } 
 
                 else 
@@ -847,10 +873,15 @@ void handle_option(int client_fd) {
 
                     //Nhận file
                     char full_path_client[256]; 
-                    snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_server);
+                    snprintf(full_path_client, sizeof(full_path_client), "%s", dir_path_2);
                     while(client_fd >= 0)
                     {
                         receive_file(client_fd, full_path_client);
+                        if(receive_folder_done == TRUE)
+                        {
+                            receive_folder_done = FALSE;
+                            break;
+                        }
                         const char *response = "File received successfully.";
                         send_response(client_fd, response);
                     }
@@ -864,14 +895,9 @@ void handle_option(int client_fd) {
                 printf("Thư mục cần tải trên server không tồn tại.\n");
             }
         }
-
-        else
-        {
-            return;
-        }
     }
 
-    else if (sscanf(input, "%15s %127s %127s", command, dir_path, dir_path_server) == 1)
+    else if (sscanf(input, "%15s %127s %127s", command, dir_path, dir_path_2) == 1)
     {
         if (strcmp(command, "ls") == 0)
         {
