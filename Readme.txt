@@ -9,6 +9,12 @@ Các bước cài đặt và chạy chương trình:
 B1: Tải project từ link github.
 
 B2: Chạy terminal ở chế độ wsl.
+    Sau đó thực hiện cài OpenSSL và các thư viện cần thiết bằng các câu lệnh sau:
+	sudo apt update
+	sudo apt upgrade
+	sudo apt install openssl
+	sudo apt install libssl-dev
+
 
 B3: Sau khi tải xong, biên dịch file server.c và client.c bằng hai câu lệnh sau:
 	gcc server.c -o server -lssl -lcrypto  
